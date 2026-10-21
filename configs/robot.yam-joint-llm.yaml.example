@@ -1,0 +1,60 @@
+# YAM joint control for local LLM and VLA evaluation.
+url: wss://YOUR_ROUTER/ws
+api_url: https://YOUR_ROUTER
+# Obtain the Client token from your Colosseum administrator.
+token: REPLACE_WITH_CLIENT_TOKEN
+institution: YOUR_INSTITUTION
+robot_type: yam
+track: 1
+policy_server_url: ws://127.0.0.1:8000
+use_local_action_contract: false # Router and local LLM/VLA actions are all joint_position.
+llm_api_keys:
+  openai: env:OPENAI_API_KEY
+  xai: env:XAI_API_KEY
+  anthropic: env:ANTHROPIC_API_KEY
+control_hz: 30
+# Native capture is RGB 640x480 at 30 FPS per RealSense camera.
+cameras:
+  head_image: TOP_REALSENSE_SERIAL
+  left_image: LEFT_WRIST_REALSENSE_SERIAL
+  right_image: RIGHT_WRIST_REALSENSE_SERIAL
+adapter_config:
+  left_channel: can_left
+  right_channel: can_right
+  # REQUIRED calibrated raw gripper motor positions, [closed, open].
+  # Passed to I2RT to avoid automatic gripper calibration during startup.
+  left_gripper_limits: null
+  right_gripper_limits: null
+  # Optional SDK motor_offset[6] recorded together with each calibration (rad).
+  # When supplied, rebase these limits into the SDK's current startup frame.
+  # Leave null for legacy limits already expressed in the current SDK frame.
+  left_gripper_calibration_offset: null
+  right_gripper_calibration_offset: null
+  # REQUIRED 12-element arrays, left six then right six, in radians.
+  # Limits must include zero: normal executed trials return both arms to joint zero.
+  joint_low: null
+  joint_high: null
+  # Maximum target distance from measured position for each joint, per execute().
+  joint_max_step: null
+  # The settings below apply to LLM and VLA joint trials.
+  # reject (default): reject target-minus-measured changes above joint_max_step.
+  # interpolate: send linear intermediate targets at 30 Hz until the policy
+  # target is sent; joint_max_step bounds command increments in this mode.
+  # clip: truncate a target to measured +/- joint_max_step and continue.
+  # clip_commanded: truncate a target to the previous command +/- joint_max_step
+  # (grippers: gripper_max_step); the first command is bounded by feedback.
+  joint_step_mode: clip_commanded
+  # reject (default) fails out-of-limit policy targets; clip saturates them at
+  # joint_low/high minus joint_limit_margin (radians) and grippers at [0, 1].
+  joint_limit_mode: clip
+  joint_limit_margin: 0.05
+  gripper_max_step: 0.15
+  # Return-to-zero arrival tolerance, radians; independent of interpolation step.
+  zero_position_tolerance: 0.05
+  camera_timeout_ms: 1000
+recording: true
+skip_upload: false
+max_trial_steps: 800
+evaluation_dir: local/eval_runs
+# test: true bypasses all hardware, including calibration checks.
+test: false

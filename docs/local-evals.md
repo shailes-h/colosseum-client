@@ -30,7 +30,9 @@ are checked out side by side.
 - GPT, Grok and Claude use your official OpenAI, xAI and Anthropic API keys.
 
 Both config files are git-ignored because they contain a Router token and
-machine-specific paths.
+machine-specific paths. Create them from the tracked templates
+`configs/robot.yam-joint-llm.yaml.example` (Client) and
+`configs/local-runtime-yam-joint.yaml.example` (Policy Server).
 
 A VLA worker starts **on demand** when the Router assigns it. Only one fits on
 a 24 GB GPU at a time. The first step of a VLA run waits while the checkpoint
@@ -48,17 +50,14 @@ the Policy Server's `local-policy-logs/`.
 ### Client
 
 1. Install the Client, YAM extra and I2RT as in [YAM setup](yam.md#install-and-configure-the-robot-host).
-2. Create the config from the EE template, then make it a joint config: set
-   `use_local_action_contract: false` and delete the `adapter_config.inspect_eef`
-   block. Fill in the Router URL, token, institution, camera serials, CAN
-   channels, gripper calibration (`scripts/calibrate_yam_gripper.py`) and
-   joint limits:
+2. Create the config, then fill in the Router URL, token, institution, camera
+   serials, CAN channels, gripper calibration (`scripts/calibrate_yam_gripper.py`),
+   joint limits and `joint_max_step`:
    ```bash
    cd ~/colosseum-client
-   cp configs/robot.yam-eef-llm.yaml.example configs/robot.yam-joint-llm.yaml
+   cp configs/robot.yam-joint-llm.yaml.example configs/robot.yam-joint-llm.yaml
    ```
-   Optionally set `evaluation_dir: local/eval_runs` to keep recordings in the
-   git-ignored `local/` folder.
+   Recordings go to the git-ignored `local/eval_runs` folder.
 3. Put the LLM API keys in a private file:
    ```bash
    mkdir -p local && install -m 600 /dev/null local/llm-keys.env
@@ -80,13 +79,11 @@ the Policy Server's `local-policy-logs/`.
 2. Set up each VLA's worker environment and checkpoint snapshot. See the Policy
    Server's [YAM guide](https://github.com/frodobots-org/colosseum-policy-server/blob/main/docs/yam.md)
    and [LingBot guide](https://github.com/frodobots-org/colosseum-policy-server/blob/main/docs/lingbot-yam.md).
-3. Create the config from the local template. Fill in the launcher paths, the
-   joint limits matching the Client config, and `robot_notes`. For each LLM,
-   change `control_mode` to `joint_pos` and delete `eef_low`/`eef_high` and any
-   EE wording in `robot_notes`:
+3. Create the config, then fill in the launcher paths, the joint limits and
+   `joint_max_step` matching the Client config, and `robot_notes`:
    ```bash
    mkdir -p local
-   cp configs/local-runtime-yam-local.yaml.example local/local-runtime-yam-agent-joint.yaml
+   cp configs/local-runtime-yam-joint.yaml.example local/local-runtime-yam-agent-joint.yaml
    ```
 
 ## Eval Station (one window instead of steps 1–5)
