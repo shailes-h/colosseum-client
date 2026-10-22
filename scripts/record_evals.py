@@ -27,8 +27,11 @@ class Recorded(BaseException):  # not Exception: skips the client's "Saved local
 
 
 def waiting(root):
+    """Recorded, unsubmitted evals the Router still holds (offline ones never reach it)."""
     out = []
     for m in root.glob('*/manifest.json'):
+        if m.parent.name.startswith('ev_offline_'):
+            continue
         try:
             d = json.loads(m.read_text())
         except Exception:
@@ -108,7 +111,8 @@ def record(config, *, resume=None, execute_action=True, ask=builtins.input):
             created = [m for m in root.glob('*/manifest.json') if m.parent.name not in before]
             if created:
                 new_id = max(created, key=lambda m: m.stat().st_mtime).parent.name
-                mark_superseded(root, previous_pending, new_id)
+                if not new_id.startswith('ev_offline_'):  # an offline eval does not close the Router's
+                    mark_superseded(root, previous_pending, new_id)
     mans = ([root / resume / 'manifest.json'] if resume else
             [m for m in root.glob('*/manifest.json') if m.parent.name not in before])
     if not mans:

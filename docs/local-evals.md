@@ -115,6 +115,14 @@ uv pip install --python .venv/bin/python -e '.[gui]'   # once
   policy. **Task done** ends a run the same way. A software button is not an emergency stop, so keep
   the physical stop within reach.
 - If the return to zero fails, the page asks you to retry, or to support the arms and release power.
+- **Offline** (the switch in the header, or `--offline`) is for rigs without internet. The Router is
+  not used: each eval picks two different local VLAs at random from the Policy Server config (cloud
+  LLMs need the internet, so they are left out), and the Router and key checks turn green without
+  contacting anyone. Offline evals get an `ev_offline_` ID and stay in `local/eval_runs`; nothing
+  is uploaded. Review and Record list only the evals of the current mode. In Review, **Keep result
+  (offline)** saves the scores on this computer, and **Reveal policies** then shows which policy was
+  A and which was B (stored in the eval's `offline.json`). Offline evals never close the Router's
+  pending eval, and online evals never close an offline one.
 
 ## 0. Check I2RT in the Client environment
 

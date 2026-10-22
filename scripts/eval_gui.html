@@ -144,6 +144,33 @@ pre{background:var(--glass2);border:1px solid var(--line);border-radius:12px;pad
 .modal.on{display:grid;animation:rise .25s}
 .modal .card{max-width:540px;width:100%;padding:30px}
 .modal h2{font:500 26px var(--serif);margin-bottom:8px}
+/* offline reveal: face-down cards, countdown, flips, confetti */
+.rv{position:fixed;inset:0;z-index:30;display:none;place-items:center;padding:20px;background:radial-gradient(circle at 50% 40%,rgba(40,24,14,.82),rgba(12,7,4,.94));color:#fff;overflow:hidden}
+.rv.on{display:grid;animation:rise .3s}
+.rv .inner{text-align:center;width:min(760px,100%)}
+.rv .eyebrow{color:#f2c79b}
+.rv h2{font:500 clamp(26px,5vw,40px) var(--serif);margin:6px 0 26px;min-height:1.3em}
+.rv .cards{display:grid;grid-template-columns:1fr 1fr;gap:clamp(12px,3vw,28px);perspective:1200px}
+.rv .rc{position:relative;height:clamp(200px,34vw,280px);transform-style:preserve-3d;transition:transform .6s cubic-bezier(.3,1.4,.5,1)}
+.rv .rc.shake{animation:shake .5s infinite}
+@keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-2.5deg) translateY(-3px)}75%{transform:rotate(2.5deg) translateY(-3px)}}
+.rv .rc.flip{transform:rotateY(180deg)}
+.rv .face{position:absolute;inset:0;border-radius:20px;backface-visibility:hidden;display:grid;place-items:center;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.rv .front{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--c) 88%,#000) 0 14px,var(--c) 14px 28px);border:3px solid rgba(255,255,255,.35)}
+.rv .front b{font:600 22px var(--serif)}.rv .front .q{font:600 84px/1 var(--serif);opacity:.9}
+.rv .back{transform:rotateY(180deg);background:#fff8f1;color:#2b1f17;border:4px solid var(--c);align-content:center;gap:8px}
+.rv .back .who{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--c)}
+.rv .back .name{font:700 clamp(30px,5.4vw,52px)/1.05 var(--serif);word-break:break-word}
+.rv .back .sc{font-size:14px;color:#7c6656}
+.rv .rc.win .back{box-shadow:0 0 0 6px gold,0 0 70px 10px rgba(255,200,60,.75);animation:pop .5s}
+.rv .crown{position:absolute;top:-16px;left:50%;transform:translateX(-50%) rotateY(180deg);background:gold;color:#3a2a00;font-weight:700;font-size:13px;padding:5px 12px;border-radius:20px;white-space:nowrap;backface-visibility:hidden;display:none}
+.rv .rc.win .crown{display:block}
+.rv .verdict{font:500 20px var(--serif);margin-top:26px;min-height:1.4em;color:#f7dcc0}
+.rv .acts{margin-top:18px;display:flex;gap:10px;justify-content:center}
+.rv .skip{position:absolute;top:18px;right:20px;background:none;border:0;color:#d9bfa7;cursor:pointer;font-size:14px}
+.cf{position:fixed;top:0;left:0;width:9px;height:14px;border-radius:2px;z-index:31;pointer-events:none;animation:cf var(--t) cubic-bezier(.15,.6,.4,1) forwards}
+@keyframes cf{0%{transform:translate(0,0) rotate(0);opacity:1}100%{transform:translate(var(--dx),var(--dy)) rotate(var(--r));opacity:0}}
+@media (prefers-reduced-motion:reduce){.rv .rc{transition:none}.rv .rc.shake{animation:none}.cf{display:none}}
 .modal .acts{display:flex;gap:10px;justify-content:flex-end;margin-top:22px;flex-wrap:wrap}
 .revgrid{display:grid;grid-template-columns:310px 1fr;gap:20px;align-items:start}
 @media(max-width:960px){.revgrid{grid-template-columns:1fr}}
@@ -153,7 +180,7 @@ pre{background:var(--glass2);border:1px solid var(--line);border-radius:12px;pad
 .evitem.on{background:var(--acc2);border-color:var(--acc)}
 .evitem .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.04em;color:#fff;background:var(--st)}
-.st-review{--st:#d98b0b}.st-scored{--st:#3d63c9}.st-submitted{--st:#2f8a4c}.st-discarded{--st:#c9372c}.st-superseded{--st:#8c8178}.st-interrupted{--st:#c46a2a}
+.st-review{--st:#d98b0b}.st-scored{--st:#3d63c9}.st-submitted{--st:#2f8a4c}.st-discarded{--st:#c9372c}.st-superseded{--st:#8c8178}.st-kept{--st:#b26a00}.st-interrupted{--st:#c46a2a}
 .filters{display:flex;gap:6px;flex-wrap:wrap;padding:2px 10px 8px}
 .filters button{padding:5px 11px;font-size:13px;border-radius:20px;display:inline-flex;align-items:center;gap:6px}
 .filters button.on{background:var(--acc);color:#fff;border-color:transparent}
@@ -197,6 +224,7 @@ code{font:12px ui-monospace,monospace;background:var(--glass2);padding:1px 5px;b
 .pill{font-size:13px;padding:5px 12px;border-radius:20px;display:flex;gap:8px;align-items:center;color:var(--mut)}
 .pill .d{width:8px;height:8px;border-radius:50%;background:var(--mut)}
 .pill.ok .d{background:var(--ok);box-shadow:0 0 0 4px var(--okbg)}.pill.fail .d{background:var(--bad)}.pill.running .d{background:var(--warn)}
+button.pill{cursor:pointer;border:1px solid transparent}.pill.offline{color:var(--warn);border-color:var(--warn)}.pill.offline .d{background:var(--warn);box-shadow:0 0 0 4px var(--warnbg)}
 </style>
 </head>
 <body>
@@ -204,6 +232,7 @@ code{font:12px ui-monospace,monospace;background:var(--glass2);padding:1px 5px;b
 <header><div class="bar">
   <div class="brand"><div class="logo">E</div><div><b>Eval Station</b><div class="mut" style="font-size:12px" id="sub"></div></div></div>
   <div class="pill glass" id="srvpill"><span class="d"></span><span>Policy Server</span></div>
+  <button class="pill glass" id="offBtn" title="Offline mode: no Router, two random local policies, nothing uploaded"><span class="d"></span><span>Online</span></button>
   <nav class="steps glass">
     <button data-v="setup"><span class="n">1</span>Setup</button>
     <button data-v="record"><span class="n">2</span>Record</button>
@@ -228,7 +257,7 @@ code{font:12px ui-monospace,monospace;background:var(--glass2);padding:1px 5px;b
 <!-- 2. RECORD -->
 <section class="view" id="v-record">
   <div id="rec-form">
-    <div class="hero"><div><div class="eyebrow">Step two · record</div><h1>Two policies. <em>One task.</em></h1><p class="lead">Describe the task. The Router picks two policies, A and B, and the robot tries the task once with each.</p></div></div>
+    <div class="hero"><div><div class="eyebrow">Step two · record</div><h1>Two policies. <em>One task.</em></h1><p class="lead" id="recLead">Describe the task. The Router picks two policies, A and B, and the robot tries the task once with each.</p></div></div>
     <div id="pendingBanner"></div>
     <div class="two">
       <div class="card">
@@ -281,7 +310,7 @@ code{font:12px ui-monospace,monospace;background:var(--glass2);padding:1px 5px;b
 <!-- 3. REVIEW -->
 <section class="view" id="v-review">
   <div class="revgrid">
-    <div class="card" style="padding:8px"><div class="spread" style="padding:10px 10px 6px"><h2>Evaluations</h2><button class="small ghost" id="refresh" title="Refresh">↻</button></div>
+    <div class="card" style="padding:8px"><div class="spread" style="padding:10px 10px 6px"><h2 id="evTitle">Evaluations</h2><button class="small ghost" id="refresh" title="Refresh">↻</button></div>
       <div class="filters" id="filters"></div>
       <div class="evlist" id="evlist"></div></div>
     <div id="evdetail"><div class="card mut">Pick an evaluation on the left.</div></div>
@@ -299,6 +328,12 @@ code{font:12px ui-monospace,monospace;background:var(--glass2);padding:1px 5px;b
   <p class="mut" style="margin:0">Keys stay on this computer, in <code>local/llm-keys.env</code>. Leave a box empty to keep its saved key.</p>
   <div id="keyInputs"></div>
   <div class="acts"><button class="big" id="keysCancel">Cancel</button><button class="primary big" id="keysSave">Save and verify</button></div>
+</div></div>
+<div class="rv" id="rv" role="dialog" aria-modal="true" aria-label="Policy reveal"><button class="skip" id="rvSkip">Skip ›</button><div class="inner">
+  <div class="eyebrow">Offline evaluation</div><h2 id="rvTitle">The envelope, please…</h2>
+  <div class="cards" id="rvCards"></div>
+  <div class="verdict" id="rvVerdict"></div>
+  <div class="acts"><button class="primary big" id="rvClose" style="visibility:hidden">Close</button></div>
 </div></div>
 <div class="toast" id="toast"></div>
 
@@ -362,7 +397,14 @@ function renderChecks(){
   document.querySelector('.steps [data-v=setup]').classList.toggle('done',!missing.length);
   const s=ST.checks.server,p=$('#srvpill');p.className='pill glass '+s.status;p.querySelector('span:last-child').textContent='Policy Server: '+({ok:'running',running:'busy',fail:'stopped',idle:'stopped'}[s.status]);
   $('#start').disabled=ST.recording;
+  $('#evTitle').textContent=ST.offline?'Offline evaluations':'Evaluations';
+  const ob=$('#offBtn');ob.classList.toggle('offline',ST.offline);ob.disabled=ST.recording;ob.querySelector('span:last-child').textContent=ST.offline?'Offline':'Online';
+  $('#recLead').textContent=ST.offline?'Offline: two local policies are picked at random as A and B, and the robot tries the task once with each. Nothing is uploaded.'
+    :'Describe the task. The Router picks two policies, A and B, and the robot tries the task once with each.';
 }
+$('#offBtn').onclick=()=>{const on=!ST.offline;
+  if(on&&!confirm('Switch to offline mode? No Router: each eval picks two local policies at random, and nothing is uploaded.'))return;
+  api('/api/offline',{on}).then(()=>toast(on?'Offline mode: nothing will be uploaded.':'Back online. Checking the Router…')).catch(e=>toast(e.message))};
 
 function openKeys(){
   const rows=ST&&ST.keys&&ST.keys.length?ST.keys:[{provider:'openai',label:'OpenAI · GPT'},{provider:'xai',label:'xAI · Grok'},{provider:'anthropic',label:'Anthropic · Claude'}];
@@ -384,7 +426,7 @@ async function loadResumable(){
   const evs=await api('/api/evals').catch(()=>[]);
   const sel=$('#resume'),cur=sel.value;
   sel.innerHTML='<option value="">— start a new one —</option>'+evs.filter(e=>e.state=='interrupted').map(e=>`<option value="${e.id}">${esc(e.instruction)} · ${new Date(e.time*1000).toLocaleString()}</option>`).join('');sel.value=cur;
-  const pend=evs.filter(e=>e.state=='review'||e.state=='scored');
+  const pend=evs.filter(e=>(e.state=='review'||e.state=='scored')&&!e.offline);  // offline evals are never closed by a new one
   $('#pendingBanner').innerHTML=pend.length?`<div class="banner warn">⚠ <div><b>“${esc(pend[0].instruction)}” is recorded but not submitted.</b> Starting a new evaluation closes it on the Router. <a href="#" id="goPend" style="color:inherit">Score it first</a></div></div>`:'';
   if(pend.length)$('#goPend').onclick=e=>{e.preventDefault();evSel=pend[0].id;show('review')};
 }
@@ -448,10 +490,10 @@ function renderPrompt(){
 }
 
 // ---- review ----
-const LBL={review:'needs score',scored:'not submitted',submitted:'submitted',discarded:'discarded',superseded:'replaced',interrupted:'interrupted'};
+const LBL={review:'needs score',scored:'not submitted',submitted:'submitted',kept:'kept offline',discarded:'discarded',superseded:'replaced',interrupted:'interrupted'};
 // "To review" = recorded but not yet submitted (needs a score, or scored but not sent)
 const FILTERS=[['all','All',()=>true],['todo','To review',e=>e.state=='review'||e.state=='scored'],
-  ['submitted','Submitted',e=>e.state=='submitted'],['discarded','Discarded',e=>e.state=='discarded']];
+  ['submitted','Submitted',e=>e.state=='submitted'],['kept','Offline',e=>e.state=='kept'],['discarded','Discarded',e=>e.state=='discarded']];
 let evFilter=(()=>{try{return localStorage.getItem('evfilter')||'todo'}catch(e){return 'todo'}})();
 async function loadEvals(){
   const all=await api('/api/evals').catch(()=>[]);
@@ -472,12 +514,12 @@ const FACT=[['speed','Speed'],['smoothness','Smoothness'],['safety','Safety'],['
 const fopts=f=>[['A2','Better'],['A1','Slightly better'],f=='safety'?['none','No eval']:['tie','Tie'],['B1','Slightly better'],['B2','Better']];
 async function loadDetail(id){
   const d=await api('/api/evals/'+id).catch(e=>{toast(e.message)});if(!d)return;
-  const locked=['submitted','discarded','superseded'].includes(d.state)||d.busy, dis=locked?'disabled':'';pref=d.preference;factors={...(d.factors||{})};
+  const locked=['submitted','kept','discarded','superseded'].includes(d.state)||d.busy, dis=locked?'disabled':'';pref=d.preference;factors={...(d.factors||{})};
   const names={head_image:'Top',left_image:'Left wrist',right_image:'Right wrist'};
   const stopNote=s=>!s?'':s.reason=='stopped'?`<div class="banner bad" style="margin:12px 0 0">■ Stopped by the evaluator at step ${s.step}. Recorded up to that step.</div>`
     :`<div class="banner info" style="margin:12px 0 0">✓ Ended by the evaluator as done at step ${s.step}.</div>`;
   const side=r=>{const v=c=>`<video data-side="${r.side}" src="/video/${id}/${r.id}/${c}" muted preload="metadata" playsinline ${c==='head_image'?'class="vmain"':''}></video>`;
-    return `<div class="card side ${r.side}"><div class="spread"><span class="chip ${r.side}" style="font-size:13px">Policy ${r.side}</span>
+    return `<div class="card side ${r.side}"><div class="spread"><span class="chip ${r.side}" style="font-size:13px" id="chip-${r.side}">Policy ${r.side}</span>
     <div class="row" style="gap:6px"><button class="small" data-play="${r.side}">▶ Play</button><button class="small" data-pause="${r.side}">❚❚</button><button class="small" data-restart="${r.side}">⟲</button>
     <select data-rate="${r.side}" style="width:auto;padding:5px 8px"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select></div></div>
     ${stopNote(r.stop)}
@@ -487,7 +529,7 @@ async function loadDetail(id){
     <label>How much of the task did ${r.side} complete?</label>
     <div class="score"><input type="range" min="0" max="100" step="5" id="rg-${r.side}" value="${r.score??0}" ${dis}><input class="num" type="number" min="0" max="100" id="sc-${r.side}" value="${r.score??''}" placeholder="–" ${dis}></div>
     <div class="mut" style="font-size:12px;display:flex;justify-content:space-between"><span>0 · nothing</span><span>50 · halfway</span><span>100 · fully done</span></div></div>`};
-  const banner={submitted:'<div class="banner ok">✓ Submitted to the Router. It can no longer be changed here.</div>',discarded:'<div class="banner bad">Discarded. Nothing was published.</div>',
+  const banner={submitted:'<div class="banner ok">✓ Submitted to the Router. It can no longer be changed here.</div>',kept:'<div class="banner warn"><div style="flex:1">Offline eval: the result is kept on this computer and was not uploaded.</div><button class="small" id="revealBtn">Reveal policies</button></div>',discarded:'<div class="banner bad">Discarded. Nothing was published.</div>',
     superseded:'<div class="banner">A newer evaluation replaced this one on the Router, so it can no longer be submitted.</div>',interrupted:'<div class="banner warn">This evaluation was interrupted before both runs were recorded. Continue it from Record → “Continue an interrupted evaluation”.</div>'}[d.state]||(d.busy?'<div class="banner info">Sending to the Router… this can take a few minutes while videos upload.</div>':'');
   $('#evdetail').innerHTML=`<div class="card" style="margin-bottom:16px"><div class="spread"><div class="eyebrow">Task</div><span class="badge st-${d.state}">${LBL[d.state]}</span></div>
     <div style="font:500 24px/1.25 var(--serif);margin-top:4px">${esc(d.instruction)}</div><div class="mut">Scene: ${esc(d.scene)||'–'} · <span style="font-family:ui-monospace,monospace;font-size:12px">${id}</span></div></div>
@@ -499,12 +541,16 @@ async function loadDetail(id){
     <div class="mut" id="fcount" style="font-size:13px;margin-top:14px"></div></div>
     <div class="card" style="margin-top:16px"><label style="margin-top:0">Which policy did better?</label>
     <div class="seg">${[['A','A was better'],['tie','About the same'],['B','B was better']].map(([v,l])=>`<button data-pref="${v}" class="${pref==v?'on':''}" ${dis}>${l}</button>`).join('')}</div>
-    <div class="gen"><label>Overall feedback <span style="text-transform:none;font-weight:400">· English, sent to the Router</span></label>
+    <div class="gen"><label>Overall feedback <span style="text-transform:none;font-weight:400">· English, ${d.offline?'kept on this computer':'sent to the Router'}</span></label>
       ${locked?'':'<button class="small primary" id="genBtn">✨ Write from my observations</button>'}</div>
     <textarea id="fb" style="min-height:150px" placeholder="Write your observations for A and B above, then click “Write from my observations”. You can edit the result." ${dis}>${esc(d.feedback)}</textarea>
     ${locked?'':`<div class="spread" style="margin-top:18px"><button class="ghost" id="discardBtn">Discard…</button>
-      <div class="row"><button id="saveBtn">Save draft</button><button class="primary big" id="submitBtn">Submit to Router</button></div></div>`}
+      <div class="row"><button id="saveBtn">Save draft</button><button class="primary big" id="submitBtn">${d.offline?'Keep result (offline)':'Submit to Router'}</button></div></div>`}
     ${d.log?`<details class="log"><summary>Router log</summary><pre>${esc(d.log)}</pre></details>`:''}</div>`;
+  if($('#revealBtn'))$('#revealBtn').onclick=()=>api(`/api/evals/${id}/reveal`).then(names=>{
+    revealShow(names,d);
+    for(const [side,name] of Object.entries(names))$('#chip-'+side).textContent=`Policy ${side} · ${name}`;
+    $('#revealBtn').textContent='Reveal again'}).catch(e=>toast(e.message));
   const V=s=>document.querySelectorAll(`video[data-side="${s}"]`);
   document.querySelectorAll('[data-play]').forEach(b=>b.onclick=()=>V(b.dataset.play).forEach(v=>v.play()));
   document.querySelectorAll('[data-pause]').forEach(b=>b.onclick=()=>V(b.dataset.pause).forEach(v=>v.pause()));
@@ -528,11 +574,43 @@ async function loadDetail(id){
   $('#saveBtn').onclick=()=>api('/api/evals/'+id,body('save')).then(r=>{toast(r.msg);loadEvals()}).catch(e=>toast(e.message));
   $('#submitBtn').onclick=()=>{if(d.runs.some(r=>$('#sc-'+r.side).value==='')||!pref)return toast('Give both runs a score and choose which was better.');
     if(!$('#fb').value.trim()&&!confirm('Submit without any feedback text?'))return;
+    if(d.offline){if(!confirm('Keep this result? It stays on this computer, is not uploaded, and can no longer be edited.'))return;
+      return api('/api/evals/'+id,body('submit')).then(r=>{toast(r.msg);loadEvals()}).catch(e=>toast(e.message))}
     if(!confirm('Submit to the Router? Scores, feedback, videos and the dataset become public and cannot be edited.'))return;
     api('/api/evals/'+id,body('submit')).then(r=>{toast('Submitting… videos are uploading.');loadEvals();pollBusy(id)}).catch(e=>toast(e.message))};
   $('#discardBtn').onclick=()=>{const reason=prompt('Why discard this evaluation? (required, nothing is published)');if(!reason)return;
-    api('/api/evals/'+id,{action:'discard',reason}).then(r=>{toast('Discarding…');pollBusy(id)}).catch(e=>toast(e.message))};
+    api('/api/evals/'+id,{action:'discard',reason}).then(r=>{if(d.offline){toast(r.msg);return loadEvals()}toast('Discarding…');pollBusy(id)}).catch(e=>toast(e.message))};
 }
+// ---- offline reveal (~2 s): brief shake, flip A, flip B, crown the pick, confetti ----
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function confetti(el,n=90){
+  const b=el?el.getBoundingClientRect():{left:innerWidth/2,top:innerHeight/2,width:0,height:0};
+  const x=b.left+b.width/2,y=b.top+b.height/3,cols=['#ffd23f','#ff6b5e','#5ccf86','#8aa6ff','#f08a5d','#fff'];
+  for(let i=0;i<n;i++){const c=document.createElement('i');c.className='cf';const a=Math.random()*Math.PI*2,v=160+Math.random()*340;
+    c.style.cssText=`left:${x}px;top:${y}px;background:${cols[i%cols.length]};--dx:${Math.cos(a)*v}px;--dy:${Math.sin(a)*v*.7+260}px;--r:${Math.random()*900-450}deg;--t:${1.3+Math.random()}s`;
+    document.body.appendChild(c);setTimeout(()=>c.remove(),2600)}
+}
+async function revealShow(names,d){
+  const quick=matchMedia('(prefers-reduced-motion: reduce)').matches;let skip=quick;
+  const rv=$('#rv'),score=s=>{const r=d.runs.find(r=>r.side==s);return r&&r.score!=null?`You scored it ${r.score}/100`:'Not scored'};
+  $('#rvTitle').textContent='And the policies were…';$('#rvVerdict').textContent='';$('#rvClose').style.visibility='hidden';
+  $('#rvCards').innerHTML=['A','B'].map(s=>`<div class="rc shake" id="rc-${s}" style="--c:var(--${s})"><span class="crown">★ Your pick</span>
+    <div class="face front"><div><div class="q">?</div><b>Policy ${s}</b></div></div>
+    <div class="face back"><div class="who">Policy ${s} was</div><div class="name">${esc(names[s]||'unknown')}</div><div class="sc">${score(s)}</div></div></div>`).join('');
+  rv.classList.add('on');
+  $('#rvSkip').onclick=()=>skip=true;
+  const step=async ms=>{if(!skip)await wait(ms)};
+  await step(450);
+  for(const s of ['A','B']){$('#rc-'+s).classList.remove('shake');$('#rc-'+s).classList.add('flip');await step(550)}
+  const pick=d.preference, winners=pick=='tie'?['A','B']:pick?[pick]:[];
+  $('#rvTitle').textContent='Revealed!';
+  winners.forEach(s=>$('#rc-'+s).classList.add('win'));
+  $('#rvVerdict').textContent=pick=='tie'?`A tie: ${names.A} vs ${names.B}`:pick?`You preferred ${names[pick]}`:'';
+  if(!quick)winners.length?winners.forEach(s=>confetti($('#rc-'+s))):confetti(null);
+  $('#rvClose').style.visibility='visible';$('#rvClose').focus();
+}
+$('#rvClose').onclick=()=>$('#rv').classList.remove('on');
+addEventListener('keydown',e=>{if(e.key=='Escape'&&$('#rv').classList.contains('on')&&$('#rvClose').style.visibility=='visible')$('#rv').classList.remove('on')});
 function pollBusy(id){const t=setInterval(async()=>{const d=await api('/api/evals/'+id).catch(()=>null);if(!d||!d.busy){clearInterval(t);if(view=='review'&&evSel==id)loadEvals();if(d)toast(d.state=='submitted'?'✓ Submitted':d.state=='discarded'?'Discarded':'Router step finished, see the log')}},3000)}
 
 // ---- live link ----
@@ -546,6 +624,7 @@ function connect(){
     const prev=ST;ST=JSON.parse(m.data);renderChecks();renderRun();renderPrompt();mood();
     if(!ST.preview&&!ST.recording)$('#pvEmpty').style.display='';
     if(prev&&prev.recording&&!ST.recording&&view=='record')loadResumable();
+    if(prev&&prev.offline!==ST.offline){evSel=null;$('#evdetail').innerHTML='<div class="card mut">Pick an evaluation on the left.</div>';if(view=='review')loadEvals();if(view=='record')loadResumable()}
   };
   ws.onclose=()=>{toast('Lost connection to the station, reconnecting…');setTimeout(connect,1500)};
 }

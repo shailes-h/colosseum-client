@@ -7,6 +7,8 @@ Needs the gui extra (uv pip install --python .venv/bin/python -e '.[gui]').
 It starts and stops the local Policy Server itself, keeps the LLM API keys in local/llm-keys.env
 (set and verified from the Setup page), and records with scripts/record_evals.py. Scoring and
 Submit/Discard reuse scripts/review_evals.py. Bound to 127.0.0.1 only.
+Offline mode (--offline, or the switch in the header) needs no internet: scripts/offline_router.py
+picks two local policies at random instead of the Router, and nothing is uploaded.
 """
 import argparse
 import asyncio
@@ -39,6 +41,7 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 CLIENT = HERE.parent
 sys.path.insert(0, str(HERE))
+import offline_router as offline  # noqa: E402
 import record_evals  # noqa: E402
 import review_evals as rv  # noqa: E402
 
@@ -48,6 +51,7 @@ from colosseum_client.robot_config import RobotClientConfig  # noqa: E402
 CAMS = rv.CAMS
 TOP = 'head_image'
 CAN_RESET = '/home/rc1/lerobot/i2rt/scripts/reset_all_can.sh'
+OFFLINE = [False]  # no internet: no Router, no uploads, two random local policies per eval
 
 
 # ---------- shared state ----------
@@ -298,9 +302,20 @@ def check_cameras():
                 + (f" · very dark: {', '.join(dark)} (lights off or lens covered?)" if dark else ''))
 
 
+def offline_policies():
+    return offline.policies(ARGS.server_dir / ARGS.server_config, CONFIG)
+
+
 def check_router():
+    if OFFLINE[0]:
+        names = [name for name, _ in offline_policies()]
+        if len(names) < 2:
+            return S.set_check('router', 'fail', f'Offline mode needs two local policies in {ARGS.server_config}; '
+                                                 f"found {', '.join(names) or 'none'}")
+        return S.set_check('router', 'ok', f"Offline: not used. Each eval picks 2 of {len(names)} local policies "
+                                           f"at random ({', '.join(names)}). Nothing is uploaded.")
     S.set_check('router', 'running', 'Contacting the Router…')
-    api = ev.EvalAPI(CONFIG)
+    api = offline.RealEvalAPI(CONFIG)
     try:
         api.request('GET', '/tasks?robot_id=' + CONFIG.robot_type)
         S.set_check('router', 'ok', f'Connected as {CONFIG.institution}')
@@ -355,6 +370,11 @@ def claude_login():
 
 
 def check_keys():
+    if OFFLINE[0]:
+        with S.lock:
+            S.keys = []
+            S.touch()
+        return S.set_check('keys', 'ok', 'Not needed offline: cloud LLM policies are left out.')
     S.set_check('keys', 'running', 'Checking each API key with its provider…')
     rows, problems = [], []
     CLAUDE_LOGIN[0] = False
@@ -647,8 +667,10 @@ def record_thread(form):
                      llm_api_keys={p: KEYS[p] for p in KEY_OK if p in KEYS},
                      llm_account_logins={'anthropic': 'claude-code'} if CLAUDE_LOGIN[0] else {})
     resume = form.get('resume') or None
+    offline.ACTIVE = offline.is_offline(resume) if resume else OFFLINE[0]
     S.set_run(phase='starting', side=None, step=0, max_steps=config.max_trial_steps, eval_id=resume,
-              instruction=config.instruction, message='Asking the Router for two policies…')
+              instruction=config.instruction, message='Picking two local policies at random…' if offline.ACTIVE
+              else 'Asking the Router for two policies…')
     try:
         eval_id = record_evals.record(config, resume=resume, ask=PROMPTS.ask)
         if eval_id:
@@ -679,10 +701,10 @@ def eval_summary(path):
     d = json.loads(path.read_text())
     a = d['assignment']
     state = ('submitted' if d.get('submitted') else 'discarded' if d.get('discarded')
-             else 'superseded' if d.get('review') == 'superseded'
+             else 'kept' if d.get('kept_offline') else 'superseded' if d.get('review') == 'superseded'
              else 'scored' if 'result' in d else 'review' if d.get('review') == 'pending' else 'interrupted')
     return {'id': a['id'], 'instruction': a.get('task', {}).get('instruction', ''), 'scene': a.get('scene', ''),
-            'state': state, 'time': path.stat().st_mtime, 'busy': rv.busy(a['id'])}
+            'state': state, 'time': path.stat().st_mtime, 'busy': rv.busy(a['id']), 'offline': offline.is_offline(a['id'])}
 
 
 def notes_path(eid):
@@ -720,6 +742,17 @@ def eval_detail(eid):
             'preference': res.get('preference') or draft.get('preference') or '',
             'feedback': res.get('feedback', draft.get('feedback', '')),
             'log': log.read_text()[-4000:] if log.exists() else ''}
+
+
+def close_offline(eid, **mark):
+    """Submit/Discard for an offline eval: marked in its manifest only, never sent."""
+    path = rv.ROOT / eid / 'manifest.json'
+    d = json.loads(path.read_text())
+    d.update(mark)
+    d.pop('review', None)
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(d, indent=2))
+    tmp.replace(path)
 
 
 def plain(msg):
@@ -768,6 +801,17 @@ def set_keys(body: dict):
         raise HTTPException(409, 'An evaluation is running')
     save_keys(body)
     threading.Thread(target=check_keys, daemon=True).start()
+    return {'ok': True}
+
+
+@app.post('/api/offline')
+def set_offline(body: dict):
+    if recording():
+        raise HTTPException(409, 'An evaluation is running')
+    OFFLINE[0] = bool(body.get('on'))
+    with S.lock:
+        S.touch()
+    threading.Thread(target=lambda: (check_router(), check_keys()), daemon=True).start()
     return {'ok': True}
 
 
@@ -841,8 +885,11 @@ def reset_run():
 
 @app.get('/api/evals')
 def list_evals():
+    """Evals of the current mode only: offline and online ones are listed (and resumed) separately."""
     out = []
     for m in rv.ROOT.glob('*/manifest.json'):
+        if offline.is_offline(m.parent.name) != OFFLINE[0]:
+            continue
         try:
             out.append(eval_summary(m))
         except Exception:
@@ -865,6 +912,9 @@ def act_eval(eid: str, body: dict):
         reason = (body.get('reason') or '').strip()
         if not reason:
             raise HTTPException(400, 'A reason is required to discard')
+        if offline.is_offline(eid):
+            close_offline(eid, discarded=True, discard_reason=reason)
+            return {'msg': 'Discarded on this computer.'}
         return {'msg': plain(rv.router(eid, 'discard', reason))}
     if isinstance(body.get('notes'), dict):
         notes = {k: str(v) for k, v in body['notes'].items() if k in ('A', 'B')}
@@ -879,6 +929,9 @@ def act_eval(eid: str, body: dict):
     if action == 'submit':
         if 'result' not in rv.load(eid):
             raise HTTPException(400, 'Give both runs a score and choose a preference before submitting')
+        if offline.is_offline(eid):
+            close_offline(eid, kept_offline=True)
+            return {'msg': 'Result kept on this computer. Nothing was uploaded.'}
         return {'msg': plain(rv.router(eid, 'submit'))}
     return {'msg': 'Saved on this computer.' if 'result' in rv.load(eid) else
             'Draft saved. Both scores and a preference are needed to submit.'}
@@ -907,6 +960,16 @@ Overall: <1-2 sentences: which did better and the deciding difference>
 Rules: use only facts from the observations, scores, run endings and factor comparison; never invent
 details. Reflect each compared factor where it fits (a tie means no advantage either way); do not mention
 a factor that is not listed. Keep it consistent with the scores, the factors and the preference. Neutral, specific, no model names, no markdown, under 130 words."""
+
+
+@app.get('/api/evals/{eid}/reveal')
+def reveal(eid: str):
+    """Which policy ran as A and B in an offline eval; only after its result is kept, so scoring stays blind."""
+    d = rv.load(known(eid))
+    if not offline.is_offline(eid) or not d.get('kept_offline'):
+        raise HTTPException(409, 'Keep the result first; the policies are revealed only after that')
+    names = offline.load_state(rv.ROOT / eid)['policies']
+    return {r['side']: names[r['id']]['name'] for r in d['assignment']['runs']}
 
 
 @app.post('/api/evals/{eid}/generate')
@@ -979,7 +1042,7 @@ def video(eid: str, run_id: str, cam: str):
 def snapshot():
     with S.lock:
         return {'checks': S.checks, 'run': dict(S.run), 'prompt': S.prompt, 'log': list(S.log)[-200:],
-                'recording': recording(), 'thumbs': sorted(S.thumbs), 'keys': S.keys, 'preview': bool(PREVIEW.thread and PREVIEW.thread.is_alive())}
+                'recording': recording(), 'thumbs': sorted(S.thumbs), 'keys': S.keys, 'offline': OFFLINE[0], 'preview': bool(PREVIEW.thread and PREVIEW.thread.is_alive())}
 
 
 @app.websocket('/ws')
@@ -1039,7 +1102,9 @@ def main():
     p.add_argument('--claude-env', type=Path, default=CLIENT / 'local/claude-account.env',
                    help='env for the Claude Code login, used for Claude when no Anthropic key is saved')
     p.add_argument('--port', type=int, default=8770)
+    p.add_argument('--offline', action='store_true', help='start in offline mode (no Router, nothing uploaded)')
     ARGS = p.parse_args()
+    OFFLINE[0] = ARGS.offline
     CONFIG = RobotClientConfig.from_yaml(ARGS.config)
     CLAUDE_ENV = source_env(ARGS.claude_env)
     env = source_env(ARGS.llm_keys)
@@ -1048,6 +1113,7 @@ def main():
     rv.CONFIG = Path(ARGS.config).resolve()
     rv.ROOT = (CLIENT / CONFIG.evaluation_dir).resolve()
     rv.CACHE = rv.ROOT.parent / 'eval_review_cache'
+    offline.install(rv.ROOT, ARGS.server_dir / ARGS.server_config)
     os.chdir(CLIENT)
     sys.stdout, sys.stderr = Tee(sys.stdout), Tee(sys.stderr)
     install_hooks()
