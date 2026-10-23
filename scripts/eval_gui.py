@@ -8,7 +8,7 @@ It starts and stops the local Policy Server itself, keeps the LLM API keys in lo
 (set and verified from the Setup page), and records with scripts/record_evals.py. Scoring and
 Submit/Discard reuse scripts/review_evals.py. Bound to 127.0.0.1 only.
 Offline mode (--offline, or the switch in the header) needs no internet: scripts/offline_router.py
-picks two local policies at random instead of the Router, and nothing is uploaded.
+picks two local policies (at random, or the ones you choose) instead of the Router, and nothing is uploaded.
 """
 import argparse
 import asyncio
@@ -51,7 +51,7 @@ from colosseum_client.robot_config import RobotClientConfig  # noqa: E402
 CAMS = rv.CAMS
 TOP = 'head_image'
 CAN_RESET = '/home/rc1/lerobot/i2rt/scripts/reset_all_can.sh'
-OFFLINE = [False]  # no internet: no Router, no uploads, two random local policies per eval
+OFFLINE = [False]  # no internet: no Router, no uploads, two local policies per eval (random or chosen)
 
 
 # ---------- shared state ----------
@@ -313,7 +313,7 @@ def check_router():
             return S.set_check('router', 'fail', f'Offline mode needs two local policies in {ARGS.server_config}; '
                                                  f"found {', '.join(names) or 'none'}")
         return S.set_check('router', 'ok', f"Offline: not used. Each eval picks 2 of {len(names)} local policies "
-                                           f"at random ({', '.join(names)}). Nothing is uploaded.")
+                                           f"at random or as you choose ({', '.join(names)}). Nothing is uploaded.")
     S.set_check('router', 'running', 'Contacting the Router…')
     api = offline.RealEvalAPI(CONFIG)
     try:
@@ -547,6 +547,8 @@ class Prompts:
         if m:
             S.set_run(phase='setup', side=m.group(1), step=0, message='')
             kind, title = 'scene', f'Get ready for Policy {m.group(1)}'
+            if m.group(1) in S.run.get('known', {}):
+                title += f" ({S.run['known'][m.group(1)]})"
             body = 'Put every object back in its starting position, then click Start.'
         elif text.startswith('Confirm this physical trial'):
             kind, title = 'confirm', 'The robot is about to move'
@@ -637,7 +639,8 @@ def install_hooks():
         PROMPTS.finish_now.clear()
         PROMPTS.stop_reason = None
         S.set_run(side=run['side'], step=0, max_steps=assignment['task'].get('max_steps', config.max_trial_steps),
-                  eval_id=assignment['id'], instruction=assignment['task'].get('instruction', ''))
+                  eval_id=assignment['id'], instruction=assignment['task'].get('instruction', ''),
+                  known=offline.chosen(path.parent) if offline.is_offline(assignment['id']) else {})
         try:
             return await trial(config, assignment, run, path, *a, **k)
         finally:
@@ -668,8 +671,9 @@ def record_thread(form):
                      llm_account_logins={'anthropic': 'claude-code'} if CLAUDE_LOGIN[0] else {})
     resume = form.get('resume') or None
     offline.ACTIVE = offline.is_offline(resume) if resume else OFFLINE[0]
-    S.set_run(phase='starting', side=None, step=0, max_steps=config.max_trial_steps, eval_id=resume,
-              instruction=config.instruction, message='Picking two local policies at random…' if offline.ACTIVE
+    offline.PICK = {side: form.get('policy_' + side.lower()) for side in 'AB'}
+    S.set_run(phase='starting', side=None, step=0, max_steps=config.max_trial_steps, eval_id=resume, known={},
+              instruction=config.instruction, message='Picking two local policies…' if offline.ACTIVE
               else 'Asking the Router for two policies…')
     try:
         eval_id = record_evals.record(config, resume=resume, ask=PROMPTS.ask)
@@ -704,7 +708,8 @@ def eval_summary(path):
              else 'kept' if d.get('kept_offline') else 'superseded' if d.get('review') == 'superseded'
              else 'scored' if 'result' in d else 'review' if d.get('review') == 'pending' else 'interrupted')
     return {'id': a['id'], 'instruction': a.get('task', {}).get('instruction', ''), 'scene': a.get('scene', ''),
-            'state': state, 'time': path.stat().st_mtime, 'busy': rv.busy(a['id']), 'offline': offline.is_offline(a['id'])}
+            'state': state, 'time': path.stat().st_mtime, 'busy': rv.busy(a['id']), 'offline': offline.is_offline(a['id']),
+            'known': offline.chosen(path.parent) if offline.is_offline(a['id']) else {}}
 
 
 def notes_path(eid):
@@ -815,6 +820,11 @@ def set_offline(body: dict):
     return {'ok': True}
 
 
+@app.get('/api/offline/policies')
+def offline_policy_names():
+    return [name for name, _ in offline_policies()]
+
+
 @app.get('/api/thumb/{cam}.jpg')
 def thumb(cam: str):
     data = S.thumbs.get(cam)
@@ -839,6 +849,8 @@ def start_eval(form: dict):
         raise HTTPException(409, 'An evaluation is already running')
     if not form.get('resume') and not form.get('instruction', '').strip():
         raise HTTPException(400, 'Please type the task instruction')
+    if not form.get('resume') and OFFLINE[0] and form.get('policy_a') and form.get('policy_a') == form.get('policy_b'):
+        raise HTTPException(400, 'Policy A and Policy B must be different')
     PREVIEW.stop()
     if not HW.acquire(timeout=6):
         raise HTTPException(409, 'The robot is busy with a check; try again in a moment')

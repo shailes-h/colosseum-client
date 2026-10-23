@@ -269,6 +269,13 @@ button.pill{cursor:pointer;border:1px solid transparent}.pill.offline{color:var(
           <div style="flex:1;min-width:140px"><label for="evaluator">Your name</label><input id="evaluator" placeholder="optional"></div>
           <div style="width:140px"><label for="maxsteps">Max steps</label><input id="maxsteps" type="number" min="1" step="1"></div>
         </div>
+        <div id="offPick" style="display:none">
+          <div class="row" style="gap:12px;flex-wrap:nowrap">
+            <div style="flex:1;min-width:0"><label for="polA">Policy A</label><select id="polA"></select></div>
+            <div style="flex:1;min-width:0"><label for="polB">Policy B</label><select id="polB"></select></div>
+          </div>
+          <p class="mut" style="font-size:13px;margin:6px 0 0" id="pickNote"></p>
+        </div>
         <details style="margin-top:14px"><summary class="mut" style="cursor:pointer">Continue an interrupted evaluation</summary>
           <label for="resume">Evaluation</label><select id="resume"><option value="">— start a new one —</option></select>
         </details>
@@ -399,7 +406,8 @@ function renderChecks(){
   $('#start').disabled=ST.recording;
   $('#evTitle').textContent=ST.offline?'Offline evaluations':'Evaluations';
   const ob=$('#offBtn');ob.classList.toggle('offline',ST.offline);ob.disabled=ST.recording;ob.querySelector('span:last-child').textContent=ST.offline?'Offline':'Online';
-  $('#recLead').textContent=ST.offline?'Offline: two local policies are picked at random as A and B, and the robot tries the task once with each. Nothing is uploaded.'
+  $('#offPick').style.display=ST.offline?'':'none';
+  $('#recLead').textContent=ST.offline?'Offline: pick Policy A and B below, or leave them on Random, and the robot tries the task once with each. Nothing is uploaded.'
     :'Describe the task. The Router picks two policies, A and B, and the robot tries the task once with each.';
 }
 $('#offBtn').onclick=()=>{const on=!ST.offline;
@@ -430,10 +438,25 @@ async function loadResumable(){
   $('#pendingBanner').innerHTML=pend.length?`<div class="banner warn">⚠ <div><b>“${esc(pend[0].instruction)}” is recorded but not submitted.</b> Starting a new evaluation closes it on the Router. <a href="#" id="goPend" style="color:inherit">Score it first</a></div></div>`:'';
   if(pend.length)$('#goPend').onclick=e=>{e.preventDefault();evSel=pend[0].id;show('review')};
 }
+// offline A/B: Random or a named local policy; the one taken by the other side is greyed out
+let POLS=[];
+function renderPick(){
+  const a=$('#polA'),b=$('#polB'),va=a.value,vb=b.value;
+  const opts=(other,cur,otherSide)=>'<option value="">🎲 Random</option>'+POLS.map(n=>{const taken=n==other;
+    return `<option value="${esc(n)}"${taken?' disabled':''}${n==cur&&!taken?' selected':''}>${esc(n)}${taken?' · Policy '+otherSide:''}</option>`}).join('');
+  a.innerHTML=opts(vb,va,'B');b.innerHTML=opts(a.value,vb,'A');
+  const blind=!a.value&&!b.value;
+  $('#pickNote').textContent=blind?'Both random: you won’t know which is which until you Reveal.'
+    :`${a.value||'A random'} vs ${b.value||'B random'}`+(a.value&&b.value?'':' (random side picked from the rest)');
+}
+async function loadPols(){POLS=await api('/api/offline/policies').catch(()=>[]);
+  ['#polA','#polB'].forEach(k=>{if(!POLS.includes($(k).value))$(k).value=''});renderPick()}
+$('#polA').onchange=$('#polB').onchange=renderPick;
 $('#start').onclick=async()=>{
   const missing=REQUIRED.filter(k=>ST.checks[k].status!='ok');
   if(missing.length&&!confirm('Some setup checks are not green yet. Start anyway?'))return;
-  const body={instruction:$('#instruction').value,scene:$('#scene').value,evaluator:$('#evaluator').value,max_steps:$('#maxsteps').value,resume:$('#resume').value};
+  const body={instruction:$('#instruction').value,scene:$('#scene').value,evaluator:$('#evaluator').value,max_steps:$('#maxsteps').value,resume:$('#resume').value,
+    ...(ST.offline?{policy_a:$('#polA').value,policy_b:$('#polB').value}:{})};
   try{localStorage.setItem('evform',JSON.stringify({scene:body.scene,evaluator:body.evaluator}))}catch(e){}
   try{await api('/api/eval/start',body)}catch(e){toast(e.message)}
 };
@@ -444,6 +467,8 @@ addEventListener('keydown',e=>{if(e.key=='Escape'&&ST&&ST.run.phase=='running'&&
 $('#toReview').onclick=()=>{evSel=ST.run.eval_id;api('/api/eval/reset',{});show('review')};
 $('#backForm').onclick=()=>api('/api/eval/reset',{});
 
+// "Policy A (pi05)" when the operator chose that side offline; just "Policy A" when it was random or online
+const pol=(side,known)=>'Policy '+side+(known&&known[side]?` (${known[side]})`:'');
 const PHASE={starting:'Starting',setup:'Waiting for you',prompt:'Waiting for you',loading:'Loading policy',running:'Running',stopping:'Stopping',homing:'Returning home',saving:'Saving',between:'Run finished',done:'Done',error:'Stopped'};
 function renderRun(){
   const r=ST.run,active=ST.recording||['done','error'].includes(r.phase);
@@ -452,7 +477,7 @@ function renderRun(){
   if(view!='record'&&ST.recording&&r.phase=='prompt')show('record');
   $('#runTask').textContent=r.instruction||'';
   $('#liveBox').className='live '+(r.phase=='stopping'?'stopping':r.side||'');
-  $('#sideChip').className='chip '+(r.side||'');$('#sideChip').textContent=r.side?'Policy '+r.side:'Preparing';
+  $('#sideChip').className='chip '+(r.side||'');$('#sideChip').textContent=r.side?pol(r.side,r.known):'Preparing';
   $('#phaseChip').innerHTML=(r.phase=='running'?'<span class="dot"></span>':'')+(PHASE[r.phase]||r.phase);
   const pct=r.max_steps?Math.min(100,r.step/r.max_steps*100):0;
   $('#progBar').style.width=(['running','stopping','homing','saving'].includes(r.phase)?pct:0)+'%';
@@ -463,7 +488,7 @@ function renderRun(){
   setHTML('#lvEmpty',showFrame?'':`<div>${idle?'':'<div class="ico running" style="margin:0 auto 12px;width:44px;height:44px"></div>'}${esc(r.message||PHASE[r.phase]||'')}</div>`);
   const sides=['A','B'],cur=sides.indexOf(r.side),done=r.phase=='done',err=r.phase=='error';
   setHTML('#timeline',sides.map((s,i)=>{const st=done||i<cur||(i==cur&&r.phase=='between')?'ok':i==cur?(err?'fail':'running'):'idle';
-    return `<div class="tl ${i==cur&&!idle?'cur':''}"><div class="ico ${st}">${ICON[st]}</div><div><b>Policy ${s}</b><div class="mut" style="font-size:13px">${st=='ok'?'Recorded':st=='running'?PHASE[r.phase]:st=='fail'?'Stopped':'Waiting'}</div></div></div>`}).join('')
+    return `<div class="tl ${i==cur&&!idle?'cur':''}"><div class="ico ${st}">${ICON[st]}</div><div><b>${esc(pol(s,r.known))}</b><div class="mut" style="font-size:13px">${st=='ok'?'Recorded':st=='running'?PHASE[r.phase]:st=='fail'?'Stopped':'Waiting'}</div></div></div>`}).join('')
     +`<div class="tl ${done?'cur':''}"><div class="ico ${done?'ok':'idle'}">${done?'✓':'·'}</div><div><b>Score both runs</b><div class="mut" style="font-size:13px">In Review</div></div></div>`);
   const m=$('#runMsg');m.style.display=r.message?'':'none';m.className='banner '+(err||r.phase=='stopping'?'bad':done?'ok':'info');m.textContent=r.message;
   $('#killBox').style.display=r.phase=='running'?'':'none';
@@ -476,7 +501,7 @@ function renderPrompt(){
   if(!p){m.classList.remove('on');lastPromptId=null;return}
   if(p.id===lastPromptId)return;lastPromptId=p.id;
   $('#mTitle').textContent=p.title;$('#mBody').textContent=p.body;$('#mInput').style.display=p.kind=='text'?'':'none';$('#mText').value='';
-  const acts={scene:[['Cancel evaluation','',null],['Start Policy '+(p.side||''),'primary','']],
+  const acts={scene:[['Cancel evaluation','',null],['Start '+(p.side?pol(p.side,ST.run.known):'Policy'),'primary','']],
     confirm:[['Cancel','','n'],['Start robot','primary','y']],
     text:[['Cancel','',null],['OK','primary','__text']],
     recovery:[['Skip and release power','danger','skip'],['Retry return','primary','retry']]}[p.kind];
@@ -519,7 +544,7 @@ async function loadDetail(id){
   const stopNote=s=>!s?'':s.reason=='stopped'?`<div class="banner bad" style="margin:12px 0 0">■ Stopped by the evaluator at step ${s.step}. Recorded up to that step.</div>`
     :`<div class="banner info" style="margin:12px 0 0">✓ Ended by the evaluator as done at step ${s.step}.</div>`;
   const side=r=>{const v=c=>`<video data-side="${r.side}" src="/video/${id}/${r.id}/${c}" muted preload="metadata" playsinline ${c==='head_image'?'class="vmain"':''}></video>`;
-    return `<div class="card side ${r.side}"><div class="spread"><span class="chip ${r.side}" style="font-size:13px" id="chip-${r.side}">Policy ${r.side}</span>
+    return `<div class="card side ${r.side}"><div class="spread"><span class="chip ${r.side}" style="font-size:13px" id="chip-${r.side}">${esc(pol(r.side,d.known))}</span>
     <div class="row" style="gap:6px"><button class="small" data-play="${r.side}">▶ Play</button><button class="small" data-pause="${r.side}">❚❚</button><button class="small" data-restart="${r.side}">⟲</button>
     <select data-rate="${r.side}" style="width:auto;padding:5px 8px"><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select></div></div>
     ${stopNote(r.stop)}
@@ -536,7 +561,7 @@ async function loadDetail(id){
     ${banner}<div class="ab">${d.runs.map(side).join('')}</div>
     <div class="card" style="margin-top:16px"><h2 style="font:500 26px var(--serif)">Compare the policies</h2>
     <p class="mut" style="font-size:13px;margin:6px 0 4px">Select one option for every factor. Tie means no advantage for either policy. For Safety, select No eval when safety was not evaluated; it will be left out of the feedback.</p>
-    ${FACT.map(([f,name])=>`<div class="factor"><div class="fname">${name}</div><div class="fsides"><span>Policy A</span><span>Policy B</span></div>
+    ${FACT.map(([f,name])=>`<div class="factor"><div class="fname">${name}</div><div class="fsides"><span>${esc(pol('A',d.known))}</span><span>${esc(pol('B',d.known))}</span></div>
       <div class="scale">${fopts(f).map(([v,l])=>`<button type="button" data-f="${f}" data-v="${v}" class="${v[0]=='A'?'sa':v[0]=='B'?'sb':'mid'} ${factors[f]==v?'on':''}" ${dis}>${l}</button>`).join('')}</div></div>`).join('')}
     <div class="mut" id="fcount" style="font-size:13px;margin-top:14px"></div></div>
     <div class="card" style="margin-top:16px"><label style="margin-top:0">Which policy did better?</label>
@@ -621,10 +646,10 @@ function connect(){
     if(typeof m.data!=='string'){const u=URL.createObjectURL(m.data);const img=ST&&ST.recording?$('#lv'):$('#pv');img.src=u;
       if(lastBlob)setTimeout((b=>()=>URL.revokeObjectURL(b))(lastBlob),1000);lastBlob=u;
       if(img.id=='pv')$('#pvEmpty').style.display='none';return}
-    const prev=ST;ST=JSON.parse(m.data);renderChecks();renderRun();renderPrompt();mood();
+    const prev=ST;ST=JSON.parse(m.data);if(!prev&&ST.offline)loadPols();renderChecks();renderRun();renderPrompt();mood();
     if(!ST.preview&&!ST.recording)$('#pvEmpty').style.display='';
     if(prev&&prev.recording&&!ST.recording&&view=='record')loadResumable();
-    if(prev&&prev.offline!==ST.offline){evSel=null;$('#evdetail').innerHTML='<div class="card mut">Pick an evaluation on the left.</div>';if(view=='review')loadEvals();if(view=='record')loadResumable()}
+    if(prev&&prev.offline!==ST.offline){evSel=null;$('#evdetail').innerHTML='<div class="card mut">Pick an evaluation on the left.</div>';if(view=='review')loadEvals();if(view=='record')loadResumable();if(ST.offline)loadPols()}
   };
   ws.onclose=()=>{toast('Lost connection to the station, reconnecting…');setTimeout(connect,1500)};
 }

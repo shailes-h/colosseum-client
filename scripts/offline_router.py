@@ -1,7 +1,7 @@
 """Offline mode: a stand-in for the Router when the rig has no internet.
 
-It picks two different local policies at random from the Policy Server config, as the Router would,
-and answers the client's Router calls on this computer. Nothing is sent anywhere: the eval stays in
+It picks two different local policies from the Policy Server config, at random as the Router would or
+as the operator chose (PICK), and answers the client's Router calls on this computer. Nothing is sent anywhere: the eval stays in
 evaluation_dir under an ev_offline_ ID, with the policy behind each side in offline.json. Cloud LLM
 policies are left out because they need the internet. Any Router call this stand-in does not know
 (results, video or dataset uploads) raises instead of going out.
@@ -23,6 +23,7 @@ PREFIX = 'ev_offline_'
 STATE = 'offline.json'
 ACTION_DIMS = {'yam': 14, 'so101': 6}  # joint_position action size, as in evaluation.run_trial
 ACTIVE = False  # set by the caller before run_evaluation: new evals (and their API) go offline
+PICK = {}  # set by the caller: {'A': name, 'B': name} for sides the operator chose; the rest are random
 RealEvalAPI = ev.EvalAPI
 
 
@@ -63,6 +64,17 @@ def assignment(folder):
                           for r in a['runs']]}
 
 
+def chosen(folder):
+    """{side: short name} for the sides the operator chose (not random), e.g. {'A': 'pi05'}; random ones stay blind."""
+    try:
+        state = load_state(folder)
+    except (OSError, ValueError):
+        return {}
+    robot = state['assignment'].get('robot_id', '')
+    names = {r['side']: state['policies'][r['id']]['name'] for r in state['assignment']['runs']}
+    return {side: names[side].removesuffix('-' + robot) for side in state.get('chosen', [])}
+
+
 class OfflineAPI:
     """EvalAPI for offline evals: answers from local files and never opens a connection."""
     def __init__(self, config, server_config):
@@ -94,7 +106,15 @@ class OfflineAPI:
         choices = policies(self.server_config, self.config)
         if len(choices) < 2:
             raise ev.NoAssignment('No pair available offline: the Policy Server config needs two local policies')
-        picked = random.sample(choices, 2)
+        by_name = dict(choices)
+        chosen = [PICK.get(side) or None for side in 'AB']
+        for name in chosen:
+            if name and name not in by_name:
+                raise ev.NoAssignment(f'{name} is not a local policy for this robot in the Policy Server config')
+        if chosen[0] and chosen[0] == chosen[1]:
+            raise ev.NoAssignment('Policy A and Policy B must be different')
+        fill = iter(random.sample([n for n in by_name if n not in chosen], chosen.count(None)))
+        picked = [(name, by_name[name]) for name in (n or next(fill) for n in chosen)]
         eid = PREFIX + secrets.token_hex(12)
         runs = [{'id': 'run_' + secrets.token_hex(16), 'side': side, 'state': 'assigned', 'plans': 0} for side in 'AB']
         a = {'id': eid, 'robot_id': body['robot_id'], 'track': 'open',
@@ -106,9 +126,11 @@ class OfflineAPI:
              'institution': body['institution'], 'test': body['test'], 'recording': body['recording'],
              'state': 'pending', 'runs': runs, 'result': None, 'offline': True}
         save_state(self.root / eid, {'assignment': a, 'finished': [],
+                                     'chosen': [side for side, n in zip('AB', chosen) if n],
                                      'policies': {r['id']: {'name': name, 'model': model}
                                                   for r, (name, model) in zip(runs, picked)}})
-        print(f'Offline: picked 2 of {len(choices)} local policies at random.', flush=True)
+        how = ', '.join(f"{side} {'chosen' if n else 'at random'}" for side, n in zip('AB', chosen))
+        print(f'Offline: picked 2 of {len(choices)} local policies ({how}).', flush=True)  # names stay hidden
         return a
 
 
