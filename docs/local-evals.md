@@ -1,5 +1,54 @@
 # YAM evaluations with local VLAs: record A/B, review, then submit
 
+## After swapping cameras or arms: update serials and CAN names
+
+Camera serials and CAN adapter serials are tied to the hardware. If you replace a
+RealSense camera, an arm or its USB-CAN adapter, the old serials no longer match
+and the Eval Station fails its camera or arm checks. Identify the new devices one
+side at a time, so you know which is left and which is right.
+
+1. Close the Eval Station and anything else using the cameras or CAN.
+2. Connect the top D435, the **left** wrist D405 and the **left** arm's CAN adapter
+   only. Leave the right camera and right adapter unplugged.
+3. Note the serials:
+   ```bash
+   cd ~/colosseum-client
+   .venv/bin/python -c "import pyrealsense2 as rs;[print(d.get_info(rs.camera_info.name),d.get_info(rs.camera_info.serial_number)) for d in rs.context().devices]"
+   for i in /sys/class/net/*; do [ "$(cat $i/type 2>/dev/null)" = 280 ] && echo "$(basename $i) $(udevadm info -a -p $i | grep -m1 'ATTRS{serial}')"; done
+   ```
+   The D435 is `head_image`, the only D405 is `left_image`, and the only CAN
+   adapter listed is `can_follower_l`. A new adapter shows up as `can0`.
+4. Connect the **right** D405 and the right CAN adapter, and run the same two
+   commands again. The new D405 is `right_image` and the new adapter is
+   `can_follower_r`.
+5. Put the camera serials under `cameras:` (`head_image`, `left_image`,
+   `right_image`) in `configs/robot.yam-joint-llm.yaml`. Do the same in
+   `configs/robot.yam-eef-llm.yaml` and `local/robot.yam.yaml` if you use them.
+6. Put the adapter serials in `/etc/udev/rules.d/90-can.rules`, keeping a backup.
+   Replace only the lines for the hardware you swapped:
+   ```
+   SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="<left adapter serial>", NAME="can_follower_l"
+   SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="<right adapter serial>", NAME="can_follower_r"
+   ```
+   ```bash
+   sudo cp /etc/udev/rules.d/90-can.rules /etc/udev/rules.d/90-can.rules.bak-$(date +%F)
+   sudoedit /etc/udev/rules.d/90-can.rules
+   sudo udevadm control --reload-rules
+   ```
+7. Unplug both CAN adapters and plug them back in, then check the names and bring
+   the buses up:
+   ```bash
+   ip -br link | grep can   # should show can_follower_l and can_follower_r, not can0/can1
+   sudo ip link set can_follower_l up type can bitrate 1000000
+   sudo ip link set can_follower_r up type can bitrate 1000000
+   ```
+8. With the arms powered and the E-stop released, confirm that each arm answers:
+   ```bash
+   .venv/bin/python ~/lerobot/i2rt/i2rt/motor_config_tool/dm_motor_registers.py read ESC_ID --motor-id 1 --channel can_follower_l
+   .venv/bin/python ~/lerobot/i2rt/i2rt/motor_config_tool/dm_motor_registers.py read ESC_ID --motor-id 1 --channel can_follower_r
+   ```
+   A new arm also needs its gripper recalibrated with `scripts/calibrate_yam_gripper.py`.
+
 The five VLAs (G05, GR00T, MolmoAct2, LingBot, pi05) run as local checkpoints
 on this machine's GPU. The three LLM policies (GPT, Grok, Claude) run through
 their APIs and the local Policy Server, using Inspect Robots with `joint_pos`
@@ -55,12 +104,12 @@ the Policy Server's `local-policy-logs/`.
    joint limits and `joint_max_step`:
    ```bash
    cd ~/colosseum-client
-   cp configs/robot.yam-joint-llm.yaml.example configs/robot.yam-joint-llm.yaml
+   cp -n configs/robot.yam-joint-llm.yaml.example configs/robot.yam-joint-llm.yaml   # -n: never overwrite a filled-in config
    ```
    Recordings go to the git-ignored `local/eval_runs` folder.
 3. Put the LLM API keys in a private file:
    ```bash
-   mkdir -p local && install -m 600 /dev/null local/llm-keys.env
+   mkdir -p local && [ -e local/llm-keys.env ] || install -m 600 /dev/null local/llm-keys.env   # never empties saved keys
    ```
    ```bash
    export OPENAI_API_KEY=...
@@ -83,7 +132,7 @@ the Policy Server's `local-policy-logs/`.
    `joint_max_step` matching the Client config, and `robot_notes`:
    ```bash
    mkdir -p local
-   cp configs/local-runtime-yam-joint.yaml.example local/local-runtime-yam-agent-joint.yaml
+   cp -n configs/local-runtime-yam-joint.yaml.example local/local-runtime-yam-agent-joint.yaml
    ```
 
 ## Eval Station (one window instead of steps 1–5)
