@@ -117,3 +117,4 @@ policy_server_url: ws://localhost:8000
 #   openai: env:OPENAI_API_KEY
 #   xai: env:XAI_API_KEY
 #   anthropic: env:ANTHROPIC_API_KEY
+#   google: env:GEMINI_API_KEY

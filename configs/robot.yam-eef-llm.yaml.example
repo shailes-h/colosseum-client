@@ -11,6 +11,7 @@ llm_api_keys:
   openai: env:OPENAI_API_KEY
   xai: env:XAI_API_KEY
   anthropic: env:ANTHROPIC_API_KEY
+  google: env:GEMINI_API_KEY
 control_hz: 30
 # Native capture is RGB 640x480 at 30 FPS per RealSense camera.
 cameras:

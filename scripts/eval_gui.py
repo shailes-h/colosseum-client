@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 import httpx
 import numpy as np
 import uvicorn
+import yaml
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from PIL import Image
@@ -43,6 +44,7 @@ import record_evals  # noqa: E402
 import review_evals as rv  # noqa: E402
 
 import colosseum_client.evaluation as ev  # noqa: E402
+from colosseum_client.llm_credentials import ROUTER_PROVIDERS, model_provider  # noqa: E402
 from colosseum_client.robot_config import RobotClientConfig  # noqa: E402
 
 CAMS = rv.CAMS
@@ -312,10 +314,40 @@ def check_router():
 
 # provider -> (label, variable in the keys file)
 PROVIDERS = {'openai': ('OpenAI · GPT', 'OPENAI_API_KEY'), 'xai': ('xAI · Grok', 'XAI_API_KEY'),
-             'anthropic': ('Anthropic · Claude', 'ANTHROPIC_API_KEY')}
+             'anthropic': ('Anthropic · Claude', 'ANTHROPIC_API_KEY'),
+             'google': ('Google · Gemini', 'GEMINI_API_KEY')}
 KEYS = {}        # provider -> key, loaded from --llm-keys
 KEY_OK = set()   # providers whose key passed the last verification
 CLAUDE_LOGIN = [False]  # Claude runs on the Claude Code login (no Anthropic key saved) and it works
+
+
+def llm_providers_served():
+    """Providers of the cloud LLM policies in the Policy Server config: only their API keys are needed."""
+    try:
+        raw = yaml.safe_load((ARGS.server_dir / ARGS.server_config).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return set(PROVIDERS)
+    return {model_provider(str(m.get('name', ''))) for m in raw.get('models') or []
+            if m.get('model_type', 'vla') != 'vla'} - {None}
+
+
+AGY_INSTALL = 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
+
+
+def gemini_via_antigravity():
+    """True when the Policy Server config calls a gemini-* model through the Antigravity CLI (agy)."""
+    try:
+        raw = yaml.safe_load((ARGS.server_dir / ARGS.server_config).read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    return any(str(m.get('name', '')).startswith('gemini-')
+               and (m.get('backend_options') or {}).get('llm_endpoint') == 'antigravity'
+               for m in raw.get('models') or [])
+
+
+def agy_installed():
+    """The Policy Server finds agy on PATH or at the installer's ~/.local/bin/agy."""
+    return bool(shutil.which('agy')) or os.access(Path.home() / '.local/bin/agy', os.X_OK)
 
 
 def verify_key(provider, key):
@@ -332,12 +364,13 @@ def verify_key(provider, key):
             except anthropic.APIStatusError as e:
                 return False, f'error {e.status_code}'
             return True, 'works'
-        url = {'openai': 'https://api.openai.com/v1/models', 'xai': 'https://api.x.ai/v1/models'}[provider]
+        url = {'openai': 'https://api.openai.com/v1/models', 'xai': 'https://api.x.ai/v1/models',
+               'google': 'https://generativelanguage.googleapis.com/v1beta/openai/models'}[provider]
         r = httpx.get(url, headers={'Authorization': f'Bearer {key}'}, timeout=20)
     except httpx.HTTPError:
         return False, 'could not reach the provider'
-    if r.status_code in (401, 403):
-        return False, 'rejected'
+    if r.status_code in (401, 403) or (provider == 'google' and r.status_code == 400):
+        return False, 'rejected'  # Google answers an invalid key with 400 INVALID_ARGUMENT
     return (True, 'works') if r.is_success else (False, f'error {r.status_code}')
 
 
@@ -356,25 +389,43 @@ def claude_login():
 
 def check_keys():
     S.set_check('keys', 'running', 'Checking each API key with its provider…')
+    served = llm_providers_served()
     rows, problems = [], []
     CLAUDE_LOGIN[0] = False
     for provider, (label, _) in PROVIDERS.items():
         key = KEYS.get(provider, '')
+        if not key and provider not in served and provider != 'anthropic':
+            # No policy of this provider to serve, so no key is needed (Claude still matters, for the
+            # review feedback). Keep a neutral row so the provider stays visible and its key can be added.
+            KEY_OK.discard(provider)
+            rows.append({'provider': provider, 'label': label, 'ok': None, 'source': '',
+                         'msg': 'optional: no policy in the Policy Server config uses it'})
+            continue
         ok, msg = verify_key(provider, key) if key else (False, 'missing')
         (KEY_OK.add if ok else KEY_OK.discard)(provider)
         shown = 'API key' if key else ''  # how it authenticates; no part of a key leaves this process
         if provider == 'anthropic' and not key:
             ok, msg = claude_login()
             CLAUDE_LOGIN[0], shown = ok, 'Claude Code login'
+        if provider == 'google' and provider in served and gemini_via_antigravity():
+            shown = 'API key via Antigravity CLI' if key else ''
+            if ok and not agy_installed():
+                ok, msg = False, f'works, but the Antigravity CLI (agy) is not installed: {AGY_INSTALL}'
+                KEY_OK.discard(provider)
+        if not ok and provider not in ROUTER_PROVIDERS and provider != 'anthropic':
+            # The Router's /next does not accept this provider yet, so it never assigns its models:
+            # its key cannot be needed. It becomes required once added to ROUTER_PROVIDERS.
+            ok, msg = None, f'{msg} (not needed yet: the Router does not assign these models)'
         rows.append({'provider': provider, 'label': label, 'ok': ok, 'msg': msg, 'source': shown})
-        if not ok:
+        if ok is False and (provider in served or provider == 'anthropic'):  # a key no policy uses can't block
             problems.append(f'{label}: {msg}' if shown == 'Claude Code login' else f'{label} key {msg}')
     with S.lock:
         S.keys = rows
         S.touch()
     if problems:
         return S.set_check('keys', 'fail', 'Please check your keys: ' + '; '.join(problems) + '.')
-    S.set_check('keys', 'ok', 'All keys work' + (' (Claude via the Claude Code login)' if CLAUDE_LOGIN[0] else ''))
+    S.set_check('keys', 'ok', 'All needed keys work'
+                + (' (Claude via the Claude Code login)' if CLAUDE_LOGIN[0] else ''))
 
 
 def save_keys(new):
@@ -640,12 +691,16 @@ PROMPTS_SYS = _Sys()
 
 
 def record_thread(form):
+    served = llm_providers_served()
     config = replace(CONFIG, track='open', instruction=form.get('instruction', '').strip(),
                      scene=form.get('scene', '').strip() or CONFIG.scene,
                      evaluator=form.get('evaluator', '').strip() or CONFIG.evaluator,
                      max_trial_steps=int(form.get('max_steps') or CONFIG.max_trial_steps),
-                     llm_api_keys={p: KEYS[p] for p in KEY_OK if p in KEYS},
-                     llm_account_logins={'anthropic': 'claude-code'} if CLAUDE_LOGIN[0] else {})
+                     # Only the providers whose LLM policies this Policy Server serves: the Router
+                     # would otherwise assign a model it cannot run.
+                     llm_api_keys={p: KEYS[p] for p in KEY_OK & served if p in KEYS},
+                     llm_account_logins={'anthropic': 'claude-code'} if CLAUDE_LOGIN[0] and 'anthropic' in served
+                     else {})
     resume = form.get('resume') or None
     S.set_run(phase='starting', side=None, step=0, max_steps=config.max_trial_steps, eval_id=resume,
               instruction=config.instruction, message='Asking the Router for two policies…')

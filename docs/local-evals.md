@@ -3,7 +3,9 @@
 The five VLAs (G05, GR00T, MolmoAct2, LingBot, pi05) run as local checkpoints
 on this machine's GPU. The three LLM policies (GPT, Grok, Claude) run through
 their APIs and the local Policy Server, using Inspect Robots with `joint_pos`
-actions. Both LLMs and VLAs use the Router's 14-value `joint_position`
+actions. Gemini (`gemini-4-hydrogen`, Router policyId `gemini-4-hydrogen-yam`) is
+set up the same way, but a station cannot offer it to the Router yet; see
+[Gemini](#gemini-gemini-4-hydrogen). Both LLMs and VLAs use the Router's 14-value `joint_position`
 contract: six joints and one gripper for each arm. The Client drives both
 policy types through its calibrated YAM joint driver. The Router assigns the
 model and run IDs. Scores, videos and datasets are submitted only when you
@@ -23,11 +25,13 @@ are checked out side by side.
 
 - Client config: `configs/robot.yam-joint-llm.yaml`, used for recording and review.
 - Policy Server config: `local/local-runtime-yam-agent-joint.yaml`. It holds the
-  5 VLA and 3 LLM entries. Each VLA has a `launcher` that starts its checkpoint
+  5 VLA and 4 LLM entries (GPT, Grok, Claude, Gemini). Each VLA has a `launcher` that starts its checkpoint
   on a local port (8202–8206). Each LLM has `control_mode: joint_pos`.
 - Both configs share the same calibrated 12-joint bounds and `joint_max_step`.
   The Client's joint clipping applies to LLM and VLA actions alike.
-- GPT, Grok and Claude use your official OpenAI, xAI and Anthropic API keys.
+- GPT, Grok, Claude and Gemini use your official OpenAI, xAI, Anthropic and
+  Google Gemini API keys. Gemini is called through the Antigravity CLI (`agy`),
+  which bills your Gemini API key.
 
 Both config files are git-ignored because they contain a Router token and
 machine-specific paths. Create them from the tracked templates
@@ -40,7 +44,7 @@ loads, for up to 10 minutes (`start_timeout_seconds: 600`). Worker logs go to
 the Policy Server's `local-policy-logs/`.
 
 > [!WARNING]
-> Before a physical LLM trial, verify that the three LLM `name`, `url` and
+> Before a physical LLM trial, verify that each LLM's `name`, `url` and
 > `revision` values in the Policy Server config exactly match the current Router
 > registrations. Also check the joint limits and gripper calibration against the
 > rig. Keep the robot attended, with the emergency stop within reach.
@@ -66,6 +70,7 @@ the Policy Server's `local-policy-logs/`.
    export OPENAI_API_KEY=...
    export XAI_API_KEY=...
    export ANTHROPIC_API_KEY=...
+   export GEMINI_API_KEY=...   # Google AI Studio key, for gemini-4-hydrogen
    ```
 4. Install `ffmpeg`, which the review page uses to encode preview videos.
 
@@ -84,6 +89,13 @@ the Policy Server's `local-policy-logs/`.
    ```bash
    mkdir -p local
    cp configs/local-runtime-yam-joint.yaml.example local/local-runtime-yam-agent-joint.yaml
+   ```
+4. Install the Antigravity CLI, which the Policy Server uses to call Gemini. It
+   lands in `~/.local/bin/agy`. No Google sign-in is needed: each call uses the
+   Client's `GEMINI_API_KEY`.
+   ```bash
+   curl -fsSL https://antigravity.google/cli/install.sh | bash
+   agy --version
    ```
 
 ## Eval Station (one window instead of steps 1–5)
@@ -104,10 +116,13 @@ uv pip install --python .venv/bin/python -e '.[gui]'   # once
 
 - It defaults to the joint configs above. It starts the Policy Server (`--server-dir`,
   `--server-config`) and stops it when you press Ctrl-C, which frees the GPU.
-- **API keys…** saves the OpenAI, xAI and Anthropic keys to `local/llm-keys.env` (owner-only).
-  **Verify** checks each key with its provider, without spending tokens. The Router is offered
-  only the LLMs whose key works. If a key fails, the card turns red and names it. The Anthropic
-  key is used both for the Claude policy and to write feedback.
+- **API keys…** saves the OpenAI, xAI, Anthropic and Google Gemini keys to `local/llm-keys.env`
+  (owner-only). **Verify** checks each key with its provider, without spending tokens. Only the
+  keys of providers whose LLMs the Policy Server config serves are required, and only those are
+  offered to the Router, when their key works. If a needed key fails, the card turns red and names
+  it. The Anthropic key is used both for the Claude policy and to write feedback. When the Policy
+  Server calls Gemini through Antigravity, the Gemini card also turns red if `agy` is not installed.
+  While the Router cannot assign Gemini, a missing Gemini key or `agy` only shows a note.
 - **Bring CAN up** asks for your password in a system pop-up. **Both arms respond** reads each
   motor's registers without powering it.
 - **STOP POLICY** (or Esc) ends the current run at once. Even an action already on its way is held
@@ -164,7 +179,7 @@ sends only the assigned model's key to the Policy Server.
 
 ```bash
 cd ~/colosseum-client
-source local/llm-keys.env          # sets OPENAI_API_KEY, XAI_API_KEY and ANTHROPIC_API_KEY
+source local/llm-keys.env          # sets OPENAI_API_KEY, XAI_API_KEY, ANTHROPIC_API_KEY and GEMINI_API_KEY
 .venv/bin/python scripts/record_evals.py configs/robot.yam-joint-llm.yaml --scene '<scene>'
 ```
 
@@ -215,6 +230,85 @@ both scores (0–100), a preference, and feedback. Then choose:
 > [!NOTE]
 > When you're done, press Ctrl-C in each terminal and confirm `nvidia-smi`
 > shows the GPU is free.
+
+## Gemini (`gemini-4-hydrogen`)
+
+Gemini runs on the same Inspect agent as GPT, Grok and Claude, with the same
+prompts, robot tools, `joint_pos` actions and safety checks. Only the model call
+differs: with `llm_endpoint: antigravity` the Policy Server calls Gemini through
+the official Antigravity CLI (`agy`, [install](#policy-server)) with your Google
+Gemini API key, which bills that key's Google AI Studio project. Each call runs
+`agy -p` in a fresh temporary folder: the camera frames are saved there as PNGs
+and attached with `@path`, and the answer must be one robot-tool call. The model
+is `gemini-4-hydrogen-<effort>`, for example `gemini-4-hydrogen-medium`. To call
+Google's OpenAI-compatible API directly instead, set `llm_endpoint: official`.
+See the Policy Server's
+[Gemini through the Antigravity CLI](https://github.com/frodobots-org/colosseum-policy-server/blob/main/docs/inspect-agent.md#gemini-through-the-antigravity-cli)
+for the options.
+
+**Model name.** The Router registers Gemini for YAM as policyId
+`gemini-4-hydrogen-yam`, and the model descriptor it sends to the Client and
+Policy Server names `gemini-4-hydrogen` (like `claude-opus-5-5-yam` /
+`claude-opus-5-5`). The `-yam` policyId never reaches the Client: A/B runs are
+blind, and `policy.json` in each run only holds the descriptor. So:
+
+- The Client picks the Google key by the `gemini-` prefix of `gemini-4-hydrogen`.
+- The Policy Server entry must be `name: gemini-4-hydrogen`. A `-yam` name does
+  not match the descriptor, and the run fails with `unregistered model`.
+- The Policy Server runs it as `gemini-4-hydrogen-<effort>` in `agy`.
+
+> [!IMPORTANT]
+> The Router's `POST /api/eval/next` still accepts only the `openai`, `xai` and
+> `anthropic` providers (checked in its OpenAPI schema on 2026-11-23). So the Client keeps `google` off
+> `/next`: offering it would make the Router reject every assignment with 422. A
+> station can offer Gemini once the Router accepts the provider.
+
+The tracked templates already include Gemini. The two config files you created
+earlier are git-ignored, so add it to them yourself:
+
+1. Client `configs/robot.yam-joint-llm.yaml`, under `llm_api_keys`:
+   ```yaml
+     google: env:GEMINI_API_KEY
+   ```
+2. `local/llm-keys.env`: `export GEMINI_API_KEY=...`, or paste the key under
+   **API keys…** in the Eval Station.
+3. Policy Server `local/local-runtime-yam-agent-joint.yaml`, at the end of `models`
+   (the same entry as in `configs/local-runtime-yam-joint.yaml.example`):
+   ```yaml
+     - name: gemini-4-hydrogen
+       model_type: llm
+       url: https://generativelanguage.googleapis.com/v1beta
+       revision: '0'
+       action_space: joint_position
+       action_dim: 14
+       control_hz: 30
+       max_horizon: 150
+       endpoint: inprocess://inspect-agent
+       backend_options:
+         robot_type: yam
+         control_mode: joint_pos
+         llm_endpoint: antigravity
+         # Hydrogen thinking levels are low, medium, high and xhigh.
+         effort: medium
+   ```
+   The Policy Server must include the `gemini-` provider support; an older one
+   rejects this entry at startup with `invalid model contract`. It must also
+   support `llm_endpoint: antigravity`, or the run fails at start-up.
+4. Install `agy` on the Policy Server machine ([Policy Server](#policy-server), step 4).
+
+Before the first Gemini trial:
+
+- The Router registers `gemini-4-hydrogen-yam` with these model fields:
+  `name: gemini-4-hydrogen`, `url: https://generativelanguage.googleapis.com/v1beta`,
+  `revision: '0'`, `action_space: joint_position`, `action_dim: 14`,
+  `control_hz: 30`, `max_horizon: 150`, `model_type: llm`. The Policy Server matches
+  every field except `control_hz`. `url` and `revision` only identify the model: with
+  `llm_endpoint: antigravity` (or `official`) the agent never calls that URL as a relay.
+- When the Router's `/next` accepts Gemini, add `'google'` to `ROUTER_PROVIDERS` in
+  `src/colosseum_client/llm_credentials.py` if it names the provider `google` and
+  accepts the API URL above. Otherwise, match the provider name and URL it accepts.
+- After the first Gemini run, check that the run's `policy.json` shows
+  `"name": "gemini-4-hydrogen"`.
 
 ## EE control instead of joint control
 

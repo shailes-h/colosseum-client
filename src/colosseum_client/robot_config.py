@@ -44,7 +44,10 @@ class RobotClientConfig:
 
     @property
     def llm_providers(self):
-        return list(dict.fromkeys([*self.llm_api_keys, *self.llm_account_logins]))
+        """Providers offered to the Router: only those its /next accepts (see ROUTER_PROVIDERS)."""
+        from .llm_credentials import ROUTER_PROVIDERS
+        return [p for p in dict.fromkeys([*self.llm_api_keys, *self.llm_account_logins])
+                if p in ROUTER_PROVIDERS]
 
     @property
     def llm_api_urls(self):
