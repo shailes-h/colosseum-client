@@ -190,7 +190,7 @@ pre{background:var(--glass2);border:1px solid var(--line);border-radius:12px;pad
 .keyrow .kname{min-width:0}.keyrow .kname b,.keyrow .kname small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .keyrow .kname small{color:var(--mut);font-size:12px}
 .keyrow .kdot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:var(--ok)}
-.keyrow.bad .kdot{background:var(--bad)}.keyrow .kmsg{color:var(--mut);text-align:right}.keyrow.bad .kmsg{color:var(--bad);font-weight:600}
+.keyrow.bad .kdot{background:var(--bad)}.keyrow.off .kdot{background:var(--mut)}.keyrow .kmsg{color:var(--mut);text-align:right}.keyrow.bad .kmsg{color:var(--bad);font-weight:600}
 code{font:12px ui-monospace,monospace;background:var(--glass2);padding:1px 5px;border-radius:5px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--fg);color:var(--bg);padding:12px 20px;border-radius:14px;box-shadow:var(--shadow);z-index:30;opacity:0;transition:.25s;pointer-events:none;max-width:90vw}
 .toast.on{opacity:1;transform:translateX(-50%)}
@@ -311,7 +311,7 @@ const CHECKS=[
  ['arms','Both arms respond','Every motor in the left and right arm answers. Nothing moves.',[['Check','arms']]],
  ['cameras','Cameras','Top camera plus the two wrist cameras.',[['Capture','cameras']]],
  ['router','Router connection','The Colosseum server that assigns policies and stores results.',[['Check','router']]],
- ['keys','AI API keys','Keys for the GPT, Grok and Claude policies. Claude also writes the review feedback.',[['API keys…','__keys'],['Verify','keys']]],
+ ['keys','AI API keys','Keys for the GPT, Grok, Claude and Gemini policies. Claude also writes the review feedback.',[['API keys…','__keys'],['Verify','keys']]],
  ['server','Policy Server','Runs the policies on this computer.',[['Start','server'],['Stop','server_stop']]],
 ];
 const REQUIRED=['can','arms','cameras','router','keys','server'];
@@ -356,7 +356,7 @@ function renderChecks(){
       <span class="tag">${ST.thumbs.includes(c)?'<span class="tick">✓</span>':''}${{head_image:'Top',left_image:'Left wrist',right_image:'Right wrist'}[c]||c}</span></div>`).join('')}
   const kr=JSON.stringify(ST.keys||[]);
   if($('#keyrows').dataset.k!==kr){$('#keyrows').dataset.k=kr;
-    $('#keyrows').innerHTML=(ST.keys||[]).map(k=>`<div class="keyrow ${k.ok?'ok':'bad'}"><span class="kdot">${k.ok?'✓':'!'}</span><span class="kname"><b>${esc(k.label)}</b><small>${esc(k.source||'not set')}</small></span><span class="kmsg">${esc(k.msg)}</span></div>`).join('')}
+    $('#keyrows').innerHTML=(ST.keys||[]).map(k=>`<div class="keyrow ${k.ok?'ok':k.ok===null?'off':'bad'}"><span class="kdot">${k.ok?'✓':k.ok===null?'–':'!'}</span><span class="kname"><b>${esc(k.label)}</b><small>${esc(k.source||'not set')}</small></span><span class="kmsg">${esc(k.msg)}</span></div>`).join('')}
   const missing=REQUIRED.filter(k=>ST.checks[k].status!='ok');
   $('#readymsg').innerHTML=missing.length?`Still needed: ${missing.map(k=>CHECKS.find(c=>c[0]==k)[1]).join(', ')}`:'<span style="color:var(--ok);font-weight:600">✓ All set. You can start recording.</span>';
   document.querySelector('.steps [data-v=setup]').classList.toggle('done',!missing.length);
@@ -365,7 +365,9 @@ function renderChecks(){
 }
 
 function openKeys(){
-  const rows=ST&&ST.keys&&ST.keys.length?ST.keys:[{provider:'openai',label:'OpenAI · GPT'},{provider:'xai',label:'xAI · Grok'},{provider:'anthropic',label:'Anthropic · Claude'}];
+  // Every provider gets a box, also one the Policy Server does not serve yet (it has no status row).
+  const rows=[{provider:'openai',label:'OpenAI · GPT'},{provider:'xai',label:'xAI · Grok'},{provider:'anthropic',label:'Anthropic · Claude'},{provider:'google',label:'Google · Gemini'}]
+    .map(d=>((ST&&ST.keys)||[]).find(k=>k.provider==d.provider)||d);
   $('#keyInputs').innerHTML=rows.map(k=>{const login=k.source=='Claude Code login';
     return `<label for="key-${k.provider}">${esc(k.label)} ${k.source?`<span style="text-transform:none;font-weight:400">· ${login?'using the Claude Code login':'key saved'}${k.ok?' ✓':''}</span>`:''}</label>
     <div class="row" style="flex-wrap:nowrap"><input id="key-${k.provider}" type="password" autocomplete="off" spellcheck="false" placeholder="${login?'leave empty to keep using the Claude Code login':k.source?'leave empty to keep the saved key':'paste key'}">

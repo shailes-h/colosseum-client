@@ -61,15 +61,24 @@ def test_router_request_contains_only_capability_urls():
     assert 'secret' not in json.dumps(seen)
 
 
+def test_google_key_is_not_offered_to_a_router_that_rejects_it():
+    # The Router's /next schema allows only openai, xai and anthropic: offering google fails with 422.
+    cfg = config(llm_api_keys={'xai': 'xai-secret', 'google': 'gemini-secret'})
+    assert cfg.llm_api_keys == {'xai': 'xai-secret', 'google': 'gemini-secret'}
+    assert cfg.llm_providers == ['xai'] and cfg.llm_api_urls == ['https://api.x.ai/v1']
+    assert config(llm_api_keys={'google': 'gemini-secret'}).llm_api_urls == []
+
+
 def test_yaml_loading(tmp_path, monkeypatch):
     monkeypatch.setenv('TEST_XAI_KEY', 'secret')
     path = tmp_path/'robot.yaml'
     path.write_text('url: wss://router.example\ntoken: test\ntest: true\npolicy_server_url: ws://localhost:8000\nllm_api_keys:\n  xai: env:TEST_XAI_KEY\n')
     assert RobotClientConfig.from_yaml(path).llm_api_keys == {'xai': 'secret'}
 
-@pytest.mark.parametrize('name,provider', [('gpt-6-astra','openai'), ('grok-4.7','xai'), ('claude-opus-5-5','anthropic')])
+@pytest.mark.parametrize('name,provider', [('gpt-6-astra','openai'), ('grok-4.7','xai'), ('claude-opus-5-5','anthropic'),
+                                           ('gemini-4-hydrogen','google')])
 def test_shared_relay_selects_key_by_model_name(name, provider):
-    keys = {'openai':'gpt-secret', 'xai':'grok-secret', 'anthropic':'claude-secret'}
+    keys = {'openai':'gpt-secret', 'xai':'grok-secret', 'anthropic':'claude-secret', 'google':'gemini-secret'}
     prepare = {'model': {'model_type':'llm', 'name':name, 'url':'https://api.yhlxj.ai/v1'}}
     actual = local_preparation(prepare, keys, 'ws://localhost:8000')
     assert actual['api_key'] == keys[provider]

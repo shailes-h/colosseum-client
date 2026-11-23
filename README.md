@@ -87,9 +87,15 @@ software STOP is not an emergency stop, so keep the physical stop within reach.
 ### LLM relay credentials
 
 The Router supplies each LLM's API URL; no Client base-URL setting is needed.
-`llm_api_keys.openai`, `.xai`, and `.anthropic` select credentials by the assigned
-model name (`gpt-*`, `grok-*`, `claude-*`), including when all three use one relay
-host. Use that relay's respective keys, not unrelated official-provider keys.
+`llm_api_keys.openai`, `.xai`, `.anthropic`, and `.google` select credentials by the
+assigned model name (`gpt-*`, `grok-*`, `claude-*`, `gemini-*`), including when they
+all use one relay host. Use that relay's respective keys, not unrelated
+official-provider keys. The Router sends Gemini as `gemini-4-hydrogen` (policyId
+`gemini-4-hydrogen-yam`), but its `/next` does not accept the `google` provider yet,
+so a `google` key is not offered to it; see
+[Gemini](docs/local-evals.md#gemini-gemini-4-hydrogen). The Policy Server calls
+Gemini through the Antigravity CLI with that key, so install `agy` on the Policy
+Server machine: `curl -fsSL https://antigravity.google/cli/install.sh | bash`.
 For example:
 
 ```yaml
